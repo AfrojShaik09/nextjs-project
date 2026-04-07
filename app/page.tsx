@@ -6,7 +6,7 @@ export default function Home() {
       <div className="text-center pt-16">
         <h1 className="text-5xl font-bold">AI Website Analyzer</h1>
         <p className="text-gray-300 mt-3">
-          Analyze SEO, UX & performance using AI
+          Analyze SEO , UX & performance using AI
         </p>
       </div>
       {/* Input */}
