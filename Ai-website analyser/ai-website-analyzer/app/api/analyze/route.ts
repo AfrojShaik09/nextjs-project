@@ -1,23 +1,42 @@
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"; // For local testing only, not recommended for production
 import { NextResponse } from "next/server";
 
 import puppeteer from "puppeteer";
 
 import OpenAI from "openai";
 
+// ⚠️ Fix SSL issue (dev only)
+
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// 🧠 Helper: Fix URL
+
+function normalizeUrl(url: string): string {
+  if (!url.startsWith("http")) {
+    return "https://" + url;
+  }
+
+  return url;
+}
+
 export async function POST(req: Request) {
   try {
-    const { url } = await req.json();
+    let { url } = await req.json();
 
     if (!url) {
-      return NextResponse.json({ error: "URL required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "URL is required" },
+
+        { status: 400 },
+      );
     }
 
-    // 🚀 Launch browser
+    url = normalizeUrl(url);
+
+    // 🚀 Launch Puppeteer
 
     const browser = await puppeteer.launch({
       headless: true,
@@ -27,9 +46,13 @@ export async function POST(req: Request) {
 
     const page = await browser.newPage();
 
-    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await page.goto(url, {
+      waitUntil: "domcontentloaded",
 
-    // 📊 Extract data
+      timeout: 30000,
+    });
+
+    // 📊 Extract Data
 
     const title = await page.title();
 
@@ -43,10 +66,27 @@ export async function POST(req: Request) {
       .catch(() => "No description");
 
     const headings = await page.$$eval("h1, h2", (els) =>
-      els.map((el) => el.textContent || ""),
+      els.map((el) => el.textContent?.trim() || ""),
     );
 
     const imageCount = await page.$$eval("img", (imgs) => imgs.length);
+
+    // 📱 Mobile Check
+
+    const hasViewport = await page
+
+      .$eval('meta[name="viewport"]', () => true)
+
+      .catch(() => false);
+
+    // ⚡ Performance Check
+
+    const largeImages = await page.$$eval(
+      "img",
+      (imgs) => imgs.filter((img) => img.width > 1000).length,
+    );
+
+    // 📸 Screenshot
 
     const screenshot = await page.screenshot({
       encoding: "base64",
@@ -56,61 +96,115 @@ export async function POST(req: Request) {
 
     await browser.close();
 
-    // 🤖 AI Prompt
+    // 📊 SEO Breakdown
+
+    const seo = {
+      titleScore: title.length > 10 ? 30 : 10,
+
+      descScore: description !== "No description" ? 30 : 10,
+
+      headingScore: headings.length > 0 ? 20 : 5,
+
+      imageScore: imageCount > 0 ? 20 : 5,
+    };
+
+    const totalSEO =
+      seo.titleScore + seo.descScore + seo.headingScore + seo.imageScore;
+
+    // 📱 Mobile Result
+
+    const mobile = {
+      hasViewport,
+
+      status: hasViewport ? "Mobile Friendly" : "Not Mobile Optimized",
+    };
+
+    // ⚡ Performance Result
+
+    const performance = {
+      imageCount,
+
+      largeImages,
+
+      suggestion:
+        largeImages > 5
+          ? "Too many large images. Optimize images for faster loading."
+          : "Images look optimized",
+    };
+
+    // 🤖 AI Prompt (STRICT JSON)
 
     const prompt = `
 
-    Analyze this website:
+You are an SEO analyzer.
 
-    Title: ${title}
+Analyze this website:
 
-    Description: ${description}
+Title: ${title}
 
-    Headings: ${headings.join(",")}
+Description: ${description}
 
-    Images: ${imageCount}
+Headings: ${headings.join(", ")}
 
-    Give JSON format:
+Images: ${imageCount}
 
-    {
+IMPORTANT:
 
-      "seo": [],
+- Return ONLY valid JSON
 
-      "ux": [],
+- No explanation
 
-      "performance": [],
+- No text outside JSON
 
-      "improvements": []
+FORMAT:
 
-    }
+{
 
-    `;
+  "seo": ["..."],
 
-    const aiRes = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+  "ux": ["..."],
 
-      messages: [{ role: "user", content: prompt }],
-    });
+  "performance": ["..."],
 
-    let aiData;
+  "improvements": ["..."],
+
+  "betterMetaDescription": "..."
+
+}
+
+`;
+
+    let aiData = {
+      seo: [],
+
+      ux: [],
+
+      performance: [],
+
+      improvements: ["AI temporarily unavailable"],
+    };
 
     try {
-      aiData = JSON.parse(aiRes.choices[0].message.content || "{}");
-    } catch {
-      aiData = { improvements: ["AI parsing failed"] };
+      const aiRes = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+
+        messages: [{ role: "user", content: prompt }],
+      });
+      console.log("AI RAW RESPONSE:", aiRes);
+      const content = aiRes?.choices?.[0]?.message?.content;
+
+      if (content) {
+        try {
+          aiData = JSON.parse(content);
+        } catch {
+          aiData.improvements = [content];
+        }
+      }
+    } catch (err) {
+      console.log("AI ERROR:", err);
     }
 
-    // 📊 Simple Score
-
-    let seoScore = 0;
-
-    if (description !== "No description") seoScore += 30;
-
-    if (headings.length > 0) seoScore += 30;
-
-    if (title.length > 10) seoScore += 20;
-
-    if (imageCount > 0) seoScore += 20;
+    // 🎯 Final Response
 
     return NextResponse.json({
       title,
@@ -123,13 +217,25 @@ export async function POST(req: Request) {
 
       screenshot,
 
-      seoScore,
+      seo: {
+        ...seo,
+
+        total: totalSEO,
+      },
+
+      mobile,
+
+      performance,
 
       ai: aiData,
     });
   } catch (error) {
-    console.error(error);
+    console.error("API ERROR:", error);
 
-    return NextResponse.json({ error: "Analysis failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Analysis failed" },
+
+      { status: 500 },
+    );
   }
 }

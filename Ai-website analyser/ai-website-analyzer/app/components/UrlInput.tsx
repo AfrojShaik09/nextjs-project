@@ -2,19 +2,17 @@
 
 import { useState } from "react";
 
-type AnalysisResult = {
-  title: string;
+import { AnalysisResult } from "../types/analysis";
 
-  description: string;
+import SeoCard from "../components/SeoCard";
 
-  seoScore: number;
+import MobileCard from "../components/MobileCard";
 
-  screenshot: string;
+import PerformanceCard from "../components/PerformanceCard";
 
-  ai: {
-    improvements: string[];
-  };
-};
+import AiSuggestions from "../components/AiSuggestions";
+
+import ScreenshotPreview from "../components/ScreenshotPreview";
 
 export default function UrlInput() {
   const [url, setUrl] = useState("");
@@ -26,102 +24,47 @@ export default function UrlInput() {
   const analyze = async () => {
     if (!url) return;
 
-    let finalUrl = url;
-
-    if (!url.startsWith("http")) {
-      finalUrl = "https://" + url;
-    }
-
     setLoading(true);
 
     setResult(null);
 
-    try {
-      const res = await fetch("/api/analyze", {
-        method: "POST",
+    const res = await fetch("/api/analyze", {
+      method: "POST",
 
-        body: JSON.stringify({ url: finalUrl }),
-      });
+      body: JSON.stringify({ url }),
+    });
 
-      const data = await res.json();
+    const data = await res.json();
 
-      setResult(data);
-    } catch (err) {
-      console.error(err);
-    }
+    setResult(data);
 
     setLoading(false);
   };
 
   return (
     <div className="w-full max-w-3xl">
-      {/* Input Box */}
-      <div className="flex gap-2 bg-white/10 backdrop-blur-md border border-white/20 p-2 rounded-xl">
+      {/* Input */}
+      <div className="flex gap-2">
         <input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="Enter website URL..."
-          className="flex-1 bg-transparent outline-none px-3 py-2 text-white placeholder-gray-300"
+          placeholder="Enter website URL"
+          className="flex-1 px-4 py-2 text-black rounded"
         />
-        <button
-          onClick={analyze}
-          className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg transition"
-        >
-          {loading ? "Analyzing..." : "Analyze"}
+        <button onClick={analyze} className="bg-blue-600 px-4 py-2 rounded">
+          Analyze
         </button>
       </div>
 
-      {/* Loading */}
-
-      {loading && (
-        <div className="mt-6 text-center text-gray-300 animate-pulse">
-          Analyzing website... 🚀
-        </div>
-      )}
-
-      {/* Result */}
+      {loading && <p className="mt-4">Analyzing...</p>}
 
       {result && (
-        <div className="mt-8 space-y-6">
-          {/* Score Card */}
-          <div className="bg-white/10 backdrop-blur-md border border-white/20 p-6 rounded-xl text-center">
-            <h2 className="text-xl mb-2">SEO Score</h2>
-            <p className="text-5xl font-bold text-blue-400">
-              {result.seoScore}
-            </p>
-          </div>
-
-          {/* Info Card */}
-          <div className="bg-white/10 backdrop-blur-md border border-white/20 p-6 rounded-xl">
-            <p>
-              <b>Title:</b> {result.title}
-            </p>
-            <p className="mt-2">
-              <b>Description:</b> {result.description}
-            </p>
-          </div>
-
-          {/* AI Suggestions */}
-          <div className="bg-white/10 backdrop-blur-md border border-white/20 p-6 rounded-xl">
-            <h3 className="text-lg font-bold mb-2">AI Improvements</h3>
-            <ul className="list-disc ml-5 space-y-1">
-              {result.ai?.improvements?.map((item, i) => (
-                <li key={i}>{item}</li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Screenshot */}
-
-          {result.screenshot && (
-            <div className="bg-white/10 backdrop-blur-md border border-white/20 p-4 rounded-xl">
-              <img
-                src={`data:image/png;base64,${result.screenshot}`}
-                alt="preview"
-                className="rounded-lg w-full"
-              />
-            </div>
-          )}
+        <div className="mt-6 space-y-4">
+          <SeoCard seo={result.seo} />
+          <MobileCard mobile={result.mobile} />
+          <PerformanceCard performance={result.performance} />
+          <AiSuggestions ai={result.ai} />
+          <ScreenshotPreview screenshot={result.screenshot} />
         </div>
       )}
     </div>
