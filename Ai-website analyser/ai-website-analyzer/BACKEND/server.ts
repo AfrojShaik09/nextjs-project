@@ -14,98 +14,98 @@ dotenv.config();
 
 const app = express();
 
-app.use(cors());
+// ✅ Middleware
+
+app.use(
+  cors({
+    origin: "*", // allow all (you can restrict later)
+  }),
+);
 
 app.use(express.json());
 
+// ✅ OpenAI Setup
+
 const openai = new OpenAI({
-
   apiKey: process.env.OPENAI_API_KEY,
-
 });
 
+// ✅ API Route
+
 app.post("/analyze", async (req: Request, res: Response) => {
-
   try {
-
     const { url } = req.body;
 
     if (!url) {
-
       return res.status(400).json({ error: "URL is required" });
-
     }
 
-    // 🌐 Scrape website
+    // 🌐 Launch Puppeteer (Render compatible)
 
     const browser = await puppeteer.launch({
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
 
       headless: true,
-
     });
 
     const page = await browser.newPage();
 
-    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await page.goto(url, {
+      waitUntil: "domcontentloaded",
+
+      timeout: 30000,
+    });
+
+    // 📄 Extract Data
 
     const title = await page.title();
 
-    const description = await page.$eval(
+    const description = await page
 
-      'meta[name="description"]',
+      .$eval('meta[name="description"]', (el) => el.getAttribute("content"))
 
-      (el) => el.getAttribute("content") || ""
-
-    ).catch(() => "");
+      .catch(() => "No description found");
 
     await browser.close();
 
-    let aiData;
+    let aiData: any;
 
     try {
-
       // 🤖 AI Analysis
 
-      const response = await openai.chat.completions.create({
-
+      const aiResponse = await openai.chat.completions.create({
         model: "gpt-4o-mini",
 
         messages: [
-
           {
-
             role: "user",
 
             content: `Analyze this website:
 
-            Title: ${title}
+Title: ${title}
 
-            Description: ${description}
+Description: ${description}
 
-            Give:
+Give:
 
-            - SEO suggestions
+- SEO suggestions
 
-            - UX improvements
+- UX improvements
 
-            - Performance tips`,
+- Performance tips
 
+- Improvements`,
           },
-
         ],
-
       });
 
-      aiData = response.choices[0].message.content;
-
+      aiData = aiResponse.choices[0]?.message?.content;
     } catch (err) {
-
       console.log("AI ERROR:", err);
 
       // 🔥 Fallback
 
       aiData = {
-
         seo: ["Unable to analyze SEO"],
 
         ux: ["AI temporarily unavailable"],
@@ -113,38 +113,41 @@ app.post("/analyze", async (req: Request, res: Response) => {
         performance: ["Try again later"],
 
         improvements: ["AI service issue"],
-
       };
-
     }
 
-    return res.json({
+    // ✅ Response
 
+    return res.json({
       title,
 
       description,
 
       ai: aiData,
-
     });
-
   } catch (error: unknown) {
-
-    console.error("SERVER ERROR:", error?.message || error);
+    if (error instanceof Error) {
+      console.error("SERVER ERROR:", error.message);
+    } else {
+      console.error("SERVER ERROR:", error);
+    }
 
     return res.status(500).json({
-
       error: "Analysis failed. Try again.",
-
     });
-
   }
-
 });
 
-app.listen(5000, () => {
+// ✅ Health check (IMPORTANT for Render)
 
-  console.log("🚀 Server running on http://localhost:5000");
-
+app.get("/", (req: Request, res: Response) => {
+  res.send("Backend is running 🚀");
 });
- 
+
+// ✅ PORT FIX (RENDER)
+
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
